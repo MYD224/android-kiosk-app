@@ -39,18 +39,21 @@
                 <category android:name="android.intent.category.LAUNCHER" />
             </intent-filter>
         </activity>
+        <!-- Device admin receiver -->
         <receiver android:name=".MyDeviceAdminReceiver"
             android:exported="true"
             android:permission="android.permission.BIND_DEVICE_ADMIN">
-            <meta-data android:name="android.app.device_admin"
+            <meta-data
+                android:name="android.app.device_admin"
                 android:resource="@xml/device_admin" />
             <intent-filter>
                 <action android:name="android.app.action.DEVICE_ADMIN_ENABLED" />
             </intent-filter>
         </receiver>
 
-        <!-- Boot Receiver -->
-        <receiver android:name=".BootReceiver"
+        <!-- Boot receiver -->
+        <receiver
+            android:name=".BootReceiver"
             android:enabled="true"
             android:exported="true">
             <intent-filter>

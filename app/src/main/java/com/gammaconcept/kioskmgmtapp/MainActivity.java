@@ -1,16 +1,18 @@
 package com.gammaconcept.kioskmgmtapp;
 
+import android.app.ActivityManager;
 import android.app.AlertDialog;
 import android.app.admin.DevicePolicyManager;
 import android.content.ComponentName;
 import android.content.Context;
 import android.content.Intent;
+import android.os.Build;
 import android.os.Bundle;
 
-import com.google.android.material.snackbar.Snackbar;
 
 import androidx.appcompat.app.AppCompatActivity;
 
+import android.os.Process;
 import android.text.InputType;
 import android.util.Log;
 import android.view.View;
@@ -24,9 +26,14 @@ import com.gammaconcept.kioskmgmtapp.databinding.ActivityMainBinding;
 
 import android.view.Menu;
 import android.view.MenuItem;
-import android.view.WindowManager;
+import android.widget.Button;
 import android.widget.EditText;
 import android.widget.Toast;
+
+import java.io.BufferedReader;
+import java.io.IOException;
+import java.io.InputStreamReader;
+import java.util.List;
 
 public class MainActivity extends AppCompatActivity {
 
@@ -36,6 +43,9 @@ public class MainActivity extends AppCompatActivity {
     private DevicePolicyManager devicePolicyManager;
     private ComponentName adminComponentName;
 
+    private static final String AnyDeskPkgName = "com.anydesk.anydeskandroid";
+    private static final String AnyDeskPluginName = "com.anydesk.adcontrol.ad1";
+
     @Override
     protected void onCreate(Bundle savedInstanceState) {
         // Initialize DevicePolicyManager
@@ -44,7 +54,7 @@ public class MainActivity extends AppCompatActivity {
 
         // Activate kiosk mode on launch
         if (devicePolicyManager.isAdminActive(adminComponentName)) {
-            enableKioskMode();
+            startKioskMode();
         } else {
             requestDeviceAdmin();
         }
@@ -59,27 +69,28 @@ public class MainActivity extends AppCompatActivity {
         appBarConfiguration = new AppBarConfiguration.Builder(navController.getGraph()).build();
         NavigationUI.setupActionBarWithNavController(this, navController, appBarConfiguration);
 
-        binding.fab.setOnClickListener(new View.OnClickListener() {
-            @Override
-            public void onClick(View view) {
-                exitKioskMode();
-//                Snackbar.make(view, "Replace with your own action", Snackbar.LENGTH_LONG)
-//                        .setAnchorView(R.id.fab)
-//                        .setAction("Action", null).show();
-            }
-        });
+        binding.fab.setOnClickListener(view -> exitKioskMode());
+
+        // Button to launch AnyDesk
+        Button launchAnyDesk = findViewById(R.id.btn_lunch_anydesk);
+        launchAnyDesk.setOnClickListener(view -> launchAnyDeskApp());
+
+        // Button to stop AnyDesk
+        Button stopAnyDesk = findViewById(R.id.btn_stop_anydesk);
+        stopAnyDesk.setOnClickListener(view -> stopAnyDesk(MainActivity.this));
     }
     private void exitKioskMode() {
+        String secret = "Tel1y@SecureP@ssw0rd79";
         AlertDialog.Builder builder = new AlertDialog.Builder(this);
         builder.setTitle("Enter Password");
         final EditText input = new EditText(this);
         input.setInputType(InputType.TYPE_CLASS_TEXT | InputType.TYPE_TEXT_VARIATION_PASSWORD);
-        input.setText("YourSecurePassword");
+        input.setText(secret);
         builder.setView(input);
 
         builder.setPositiveButton("Unlock", (dialog, which) -> {
             String password = input.getText().toString();
-            if (password.equals("YourSecurePassword")) {
+            if (password.equals(secret)) {
                 stopLockTask(); // Exits Kiosk Mode
             } else {
                 Toast.makeText(this, "Incorrect Password", Toast.LENGTH_SHORT).show();
@@ -90,25 +101,25 @@ public class MainActivity extends AppCompatActivity {
         builder.show();
     }
 
-    private void enableKioskMode() {
-//        if (devicePolicyManager.isDeviceOwnerApp(getPackageName())) {
-//            // Allow lock task mode
-//            String[] packages = {getPackageName()};
-//            devicePolicyManager.setLockTaskPackages(adminComponentName, packages);
-//
-//            // Start lock task mode
-//            startLockTask();
-//        } else {
-//            Toast.makeText(this, "App is not set as Device Owner", Toast.LENGTH_LONG).show();
-//        }
-        devicePolicyManager = (DevicePolicyManager) getSystemService(Context.DEVICE_POLICY_SERVICE);
-        adminComponentName = new ComponentName(this, MyDeviceAdminReceiver.class);
 
-        if (devicePolicyManager.isDeviceOwnerApp(getPackageName())) {
-            devicePolicyManager.setLockTaskPackages(adminComponentName, new String[]{getPackageName()});
-            startLockTask(); // Automatically starts persistent lock task
+
+    private void startKioskMode() {
+        DevicePolicyManager dpm = (DevicePolicyManager) getSystemService(Context.DEVICE_POLICY_SERVICE);
+        ComponentName adminComponent = new ComponentName(this, MyDeviceAdminReceiver.class);
+
+        // Verify if the app is a device owner
+        if (dpm.isDeviceOwnerApp(getPackageName())) {
+            // Whitelist your app and AnyDesk(with it's plugin)
+            dpm.setLockTaskPackages(adminComponent, new String[]{
+                    getPackageName(), // Your app
+                    AnyDeskPkgName, // AnyDesk package name
+                    AnyDeskPluginName // AnyDesk adcontrol package name
+            });
+
+            // Start lock task mode
+            startLockTask();
         } else {
-            requestDeviceAdmin();
+            Toast.makeText(this, "App is not set as device owner.", Toast.LENGTH_SHORT).show();
         }
     }
 
@@ -119,13 +130,52 @@ public class MainActivity extends AppCompatActivity {
         startActivityForResult(intent, 1);
     }
 
-    @Override
-    protected void onActivityResult(int requestCode, int resultCode, Intent data) {
-        super.onActivityResult(requestCode, resultCode, data);
-        if (requestCode == 1 && resultCode == RESULT_OK) {
-            enableKioskMode();
-        } else {
-            Toast.makeText(this, "Admin permission is required!", Toast.LENGTH_LONG).show();
+
+    private void launchAnyDeskApp() {
+        Intent intent = new Intent();
+        intent.setClassName(AnyDeskPkgName,  AnyDeskPkgName+".gui.activity.MainActivity");
+        try {
+            startActivity(intent);
+//            launchAnyDeskPlugin();
+        } catch (Exception e) {
+            Toast.makeText(this, "Failed to launch AnyDesk. Please check installation.", Toast.LENGTH_SHORT).show();
+        }
+    }
+
+    /**
+     * Stop AnyDesk application whether it's running in the foreground or background.
+     * This method attempts to kill the AnyDesk process.
+     */
+    private void stopAnyDesk(Context context) {
+        final String TAG = "AppManager";
+        // Check if AnyDesk is running
+        ActivityManager activityManager = (ActivityManager) context.getSystemService(Context.ACTIVITY_SERVICE);
+        Log.d("test result", String.valueOf(activityManager != null));
+        if (activityManager != null) {
+            List<ActivityManager.RunningAppProcessInfo> runningProcesses = activityManager.getRunningAppProcesses();
+            Log.d("Running Processes : ", String.valueOf(runningProcesses));
+            for (ActivityManager.RunningAppProcessInfo processInfo : runningProcesses) {
+                Log.d("ProcessName to be killed: ", String.valueOf(processInfo.processName));
+                if (processInfo.processName.equals(AnyDeskPkgName)) {
+                    // Kill the AnyDesk process on Lollipop or higher using Process.killProcess()
+                    int pid = processInfo.pid;
+                    Process.killProcess(pid);
+                    Log.d(TAG, "AnyDesk process killed: " + pid);
+                    return;
+                }
+            }
+
+            Log.d(TAG, "AnyDesk process not killed: ");
+        }
+    }
+
+    private void launchAnyDeskPlugin() {
+        Intent intent = new Intent();
+        intent.setClassName(AnyDeskPluginName, AnyDeskPluginName+".MainActivity"); // Replace with actual activity
+        try {
+            startActivity(intent);
+        } catch (Exception e) {
+            Toast.makeText(this, "Failed to launch AnyDesk Plugin AD1. Please check installation.", Toast.LENGTH_SHORT).show();
         }
     }
 
