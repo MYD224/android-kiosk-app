@@ -1,11 +1,16 @@
 package com.gammaconcept.kioskmgmtapp;
 
+import static com.gammaconcept.kioskmgmtapp.SilentInstaller.installApkSilently;
+
 import android.app.ActivityManager;
 import android.app.AlertDialog;
 import android.app.admin.DevicePolicyManager;
 import android.content.ComponentName;
 import android.content.Context;
 import android.content.Intent;
+import android.content.pm.PackageInfo;
+import android.content.pm.PackageManager;
+import android.net.Uri;
 import android.os.Build;
 import android.os.Bundle;
 
@@ -17,6 +22,7 @@ import android.text.InputType;
 import android.util.Log;
 import android.view.View;
 
+import androidx.core.content.FileProvider;
 import androidx.navigation.NavController;
 import androidx.navigation.Navigation;
 import androidx.navigation.ui.AppBarConfiguration;
@@ -31,8 +37,13 @@ import android.widget.EditText;
 import android.widget.Toast;
 
 import java.io.BufferedReader;
+import java.io.File;
+import java.io.FileOutputStream;
 import java.io.IOException;
+import java.io.InputStream;
 import java.io.InputStreamReader;
+import java.net.HttpURLConnection;
+import java.net.URL;
 import java.util.List;
 
 public class MainActivity extends AppCompatActivity {
@@ -45,6 +56,11 @@ public class MainActivity extends AppCompatActivity {
 
     private static final String AnyDeskPkgName = "com.anydesk.anydeskandroid";
     private static final String AnyDeskPluginName = "com.anydesk.adcontrol.ad1";
+
+    //server urls
+    private static final String ServerUrl = "http://192.168.1.169:8000";
+    private static final String AppVersionUrl = ServerUrl+"/api/auth/mobile-app-latest-version";
+    private static final String ServerAPKPath = ServerUrl+"/storage/PartnerMobileAPKs/teliyasantepartners.apk";
 
     @Override
     protected void onCreate(Bundle savedInstanceState) {
@@ -73,13 +89,29 @@ public class MainActivity extends AppCompatActivity {
 
         // Button to launch AnyDesk
         Button launchAnyDesk = findViewById(R.id.btn_lunch_anydesk);
-        launchAnyDesk.setOnClickListener(view -> launchAnyDeskApp());
+        launchAnyDesk.setOnClickListener(view -> {
+            launchAnyDeskApp();
+        });
 
         // Button to stop AnyDesk
         Button stopAnyDesk = findViewById(R.id.btn_stop_anydesk);
-        stopAnyDesk.setOnClickListener(view -> stopAnyDesk(MainActivity.this));
+//        stopAnyDesk.setOnClickListener(view -> debugRunningProcesses());
+        stopAnyDesk.setOnClickListener(view -> {
+                    try {
+                        checkForUpdates(this, AppVersionUrl);
+                    } catch (PackageManager.NameNotFoundException e) {
+                        throw new RuntimeException(e);
+                    }
+                }
+//                stopAnyDesk(MainActivity.this)
+        );
     }
     private void exitKioskMode() {
+//        try {
+//            checkForUpdates(this, AppVersionUrl);
+//        } catch (PackageManager.NameNotFoundException e) {
+//            throw new RuntimeException(e);
+//        }
         String secret = "Tel1y@SecureP@ssw0rd79";
         AlertDialog.Builder builder = new AlertDialog.Builder(this);
         builder.setTitle("Enter Password");
@@ -153,9 +185,9 @@ public class MainActivity extends AppCompatActivity {
         Log.d("test result", String.valueOf(activityManager != null));
         if (activityManager != null) {
             List<ActivityManager.RunningAppProcessInfo> runningProcesses = activityManager.getRunningAppProcesses();
-            Log.d("Running Processes : ", String.valueOf(runningProcesses));
+
+            Log.d("Running Processes :", String.valueOf(runningProcesses));
             for (ActivityManager.RunningAppProcessInfo processInfo : runningProcesses) {
-                Log.d("ProcessName to be killed: ", String.valueOf(processInfo.processName));
                 if (processInfo.processName.equals(AnyDeskPkgName)) {
                     // Kill the AnyDesk process on Lollipop or higher using Process.killProcess()
                     int pid = processInfo.pid;
@@ -167,6 +199,79 @@ public class MainActivity extends AppCompatActivity {
 
             Log.d(TAG, "AnyDesk process not killed: ");
         }
+    }
+
+    public void checkForUpdates(Context context, String serverVersionUrl) throws PackageManager.NameNotFoundException {
+        // Use an HTTP library like OkHttp to fetch the version info
+        PackageInfo packageInfo = getPackageManager().getPackageInfo(getPackageName(), 0);
+        String currentVersion = packageInfo.versionName;
+//        String currentVersion = getAppVersion(context);
+        new Thread(() -> {
+            try {
+                URL url = new URL(serverVersionUrl);
+                HttpURLConnection connection = (HttpURLConnection) url.openConnection();
+                connection.setRequestMethod("GET");
+                connection.connect();
+                Log.d("Fetching apk version => ", "from online serve");
+                if (connection.getResponseCode() == HttpURLConnection.HTTP_OK) {
+                    BufferedReader reader = new BufferedReader(new InputStreamReader(connection.getInputStream()));
+                    String latestVersion = reader.readLine();
+                    reader.close();
+                    Log.d("latestVersion => ", latestVersion);
+                    Log.d("App has new version => ", String.valueOf((!currentVersion.equals(latestVersion))));
+                    if (!currentVersion.equals(latestVersion)) {
+                        downloadApk(ServerAPKPath ,context);
+                    }
+                }
+            } catch (Exception e) {
+                e.printStackTrace();
+            }
+        }).start();
+    }
+
+
+    public void downloadApk(String apkUrl, Context context) {
+        String fileName = "update.apk";
+        File apkFile = new File(context.getExternalFilesDir(null), fileName);
+
+        // Download APK
+        new Thread(() -> {
+            try {
+                URL url = new URL(apkUrl);
+                HttpURLConnection connection = (HttpURLConnection) url.openConnection();
+                connection.connect();
+
+                if (connection.getResponseCode() == HttpURLConnection.HTTP_OK) {
+                    InputStream input = connection.getInputStream();
+                    FileOutputStream output = new FileOutputStream(apkFile);
+
+                    byte[] buffer = new byte[1024];
+                    int bytesRead;
+                    while ((bytesRead = input.read(buffer)) != -1) {
+                        output.write(buffer, 0, bytesRead);
+                    }
+
+                    output.close();
+                    input.close();
+                    Log.d("Ready to install new app", "We are able to install the new app");
+                    // Silent install
+                    installApk(context, apkFile);
+                }
+            } catch (Exception e) {
+                e.printStackTrace();
+            }
+        }).start();
+    }
+    public void installApk(Context context, File apkFile) {
+        Log.d("APP installation in progess", "");
+        Intent intent = new Intent(Intent.ACTION_VIEW);
+        Uri apkUri = FileProvider.getUriForFile(context, context.getPackageName() + ".fileprovider", apkFile);
+
+        intent.setDataAndType(apkUri, "application/vnd.android.package-archive");
+        intent.addFlags(Intent.FLAG_GRANT_READ_URI_PERMISSION | Intent.FLAG_ACTIVITY_NEW_TASK);
+
+        context.startActivity(intent);
+        Log.d("APP installation done", "");
     }
 
     private void launchAnyDeskPlugin() {
