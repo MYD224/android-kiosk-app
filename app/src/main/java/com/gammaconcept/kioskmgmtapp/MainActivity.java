@@ -133,8 +133,6 @@ public class MainActivity extends AppCompatActivity {
         builder.show();
     }
 
-
-
     private void startKioskMode() {
         DevicePolicyManager dpm = (DevicePolicyManager) getSystemService(Context.DEVICE_POLICY_SERVICE);
         ComponentName adminComponent = new ComponentName(this, MyDeviceAdminReceiver.class);
@@ -161,8 +159,7 @@ public class MainActivity extends AppCompatActivity {
         intent.putExtra(DevicePolicyManager.EXTRA_ADD_EXPLANATION, "App needs admin permissions.");
         startActivityForResult(intent, 1);
     }
-
-
+    
     private void launchAnyDeskApp() {
         Intent intent = new Intent();
         intent.setClassName(AnyDeskPkgName,  AnyDeskPkgName+".gui.activity.MainActivity");
@@ -229,7 +226,6 @@ public class MainActivity extends AppCompatActivity {
         }).start();
     }
 
-
     public void downloadApk(String apkUrl, Context context) {
         String fileName = "update.apk";
         File apkFile = new File(context.getExternalFilesDir(null), fileName);
@@ -262,6 +258,7 @@ public class MainActivity extends AppCompatActivity {
             }
         }).start();
     }
+
     public void installApk(Context context, File apkFile) {
         Log.d("APP installation in progess", "");
         Intent intent = new Intent(Intent.ACTION_VIEW);
